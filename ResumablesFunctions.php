@@ -1,14 +1,12 @@
 <?php
 
-namespace SportsRush\CoreBundle\Functions;
+namespace App/Bundle\Functions;
 
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\JsonResponse;
 
 #use Symfony\Component\Serializer\Normalizer\DateTimeNormalizer;
 #use Symfony\Component\Serializer\Serializer;
-
-use SportsRush\CoreBundle\Entity\Post;
 
 class ResumablesFunctions
 {
@@ -308,157 +306,6 @@ class ResumablesFunctions
     }
 
 
-    public function setPost($em, $user, $info, $img, $slag)
-    {
-        $post = new post();
-        $post->setUser($user);
-        $post->setWriteString( $info['text'] );
-        if( $img and $img != '' ){ $post->setFilePath($img); }
-        if( $slag and $slag != '' ){ $post->setYoutube($slag); }
-
-        self::setNewPostOwners($em, $user, $info, $post);
-        $em->persist($post);
-        $em->flush();
-        $this->sendNewPostNotifications($post, $em, $user);
-
-        return $post->unwrapPost($this->baseURL());
-    }
-
-
-    public function sendNewPostNotifications($post, $em, $user)
-    {
-        $router = $this->container->get('router');
-        if( $team = $post->getTeam() ){
-            $team_url = $router->generate('sportsrush_core_main_teams-profile', array( 'id' => $team->getId() ));
-        }
-        if( $event = $post->getEvent() ){
-            $codedId = $em->getRepository('SportsRushCoreBundle:Event')->generateUniqueUrl( $event->getId() );
-            $event_url = $router->generate('sportsrush_core_main_events_detail', array( 'unique_url'=> $codedId));
-        }
-        if( isset( $event ) ){
-            $title = $user->getUsername() . ' has posted to ' . $event->getName();
-            $this->container->get('app.funcs.notifications')
-                 ->setTeamTextNotifications( $em, $team, $title, $post->getWriteString(), $event_url, 'event' );
-        }elseif( isset( $team ) ){
-            $title = $user->getUsername() . ' has posted to ' . $team->getName();
-            $this->container->get('app.funcs.notifications')
-                 ->setTeamTextNotifications( $em, $team, $title, $post->getWriteString(), $team_url, 'team' );
-        }
-    }
-
-
-    public function setNewPostOwners($em, $user, $info, &$post)
-    {
-        if( $info['club'] != '' ){
-            $club = $em->getRepository('SportsRushCoreBundle:Club')->find( $info['club'] );
-            if( $club ){
-                $post->setClub($club);
-            }
-        }
-        if( $info['team'] != '' ){ /* check if team member */
-            $team = $em->getRepository('SportsRushCoreBundle:Team')->find( $info['team'] );
-            if( $team and $team->getWordRole($user) != 'none' ){
-                $post->setTeam($team);
-                if( $team->getClub() ){
-                    $post->setClub($team->getClub());
-                }
-            }
-        }
-        if( $info['event'] != '' ){ /* check if participant (invited was accepted) */
-            $events_repo = $em->getRepository('SportsRushCoreBundle:Event');
-            $event = $events_repo->find( $info['event'] );
-            if( $event and $user->getEvents()->contains($event) ){
-                $post->setEvent($event);
-                $post->setTeam($event->getTeam());
-                if( $event->getTeam()->getClub() ){
-                    $post->setClub($event->getTeam()->getClub());
-                }
-            }
-        }
-    }
-
-
-    public function youtubeUpload($em, $user, $filename, $rel_path, $optionalParams, &$successes, &$errors, &$warnings)
-    {
-        $dir = __DIR__ . "/../../../../web";
-        $abs_path = "$dir/$rel_path/$filename";
-
-        if( !file_exists($abs_path) ){ 
-            return false; 
-        }
-
-        $token = $this->container->get('security.token_storage')->getToken();
-        $google_app_id = $this->container->getParameter('google_app_id');
-        $google_app_secret = $this->container->getParameter('google_app_secret');
-        $refresh_token = $user->getGoogleRefreshToken();
-
-        $client = new \Google_Client();
-        $client->setApplicationName("SportsRush");
-        $client->setClientId($google_app_id);
-        $client->setClientSecret($google_app_secret);
-        // Define an object that will be used to make all API requests.
-
-        if( method_exists( $token, 'getResourceOwnerName' ) and $token->getResourceOwnerName() == 'google' ){
-            // already logged in with google
-            $client->setAccessToken(json_encode($token->getRawToken()));
-        }elseif( !is_null($refresh_token) ){
-            $client->setAccessType('offline');
-            $client->refreshToken($refresh_token);
-        }else{
-            // if no refresh token were provided
-            $resourse_owner = ( method_exists( $token, 'getResourceOwnerName' ) )?  $token->getResourceOwnerName() : 'SportsRush';
-            $errors['Authentication provider error'] = 'Please, login with your google account, not your ' . $resourse_owner . " account.";
-        return false;
-        }
-
-        // Check to ensure that the access token was successfully acquired.
-        if ( !$client->getAccessToken()) {
-            $errors['Google authentication error'] = 'can not get access token';
-        return false;
-        }
-
-        try {
-            $youtube = new \Google_Service_YouTube($client);
-            //$channelsResponse = $youtube->channels->listChannels('contentDetails', array( 'mine' => 'true',));
-            //var_dump( $channelsResponse['items'] );
-
-            $snippet = new \Google_Service_YouTube_VideoSnippet();
-            $snippet->setTitle($filename);
-            $descr = isset($optionalParams['text'])? $optionalParams['text']: '';
-            $snippet->setDescription( $descr );
-            $snippet->setTags(array("tag1", "tag2"));
-            $snippet->setCategoryId("22");
-
-            $status = new \Google_Service_YouTube_VideoStatus();
-            $status->privacyStatus = "public";
-
-            $video = new \Google_Service_YouTube_Video();
-            $video->setSnippet($snippet);
-            $video->setStatus($status);
-
-            $chunkSizeBytes = 1 * 1024 * 1024;
-            $client->setDefer(true);
-            $insertRequest = $youtube->videos->insert("status,snippet", $video);
-            $media = new \Google_Http_MediaFileUpload( $client, $insertRequest, 'video/*', null, true, $chunkSizeBytes);
-            $media->setFileSize(filesize($abs_path));
-
-            $status = false;
-            $handle = fopen($abs_path, "rb");
-            while (!$status && !feof($handle)) {
-                $chunk = fread($handle, $chunkSizeBytes);
-                $status = $media->nextChunk($chunk);
-            }
-            fclose($handle);
-            return  $status['id'];
-
-        } catch (\Google_Service_Exception $e) {
-            $errors['google api service error'] = json_decode($e->getMessage(), true);
-            return false;
-        } catch (\Google_Exception $e) {
-            $errors['google api error'] = json_decode($e->getMessage(), true);
-            return false;
-        }
-    }
 
 
     public function handleVideo(){  # for server videos, not youtube ones
