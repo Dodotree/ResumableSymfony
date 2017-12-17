@@ -1,8 +1,7 @@
 # ResumableSymfony
 Adaptation of Resumable.js for Symfony with javascript based of <a href="https://github.com/23/resumable.js/">Resumable.js</a> but very heavily rewritten.  
 
-Javascript part includes previews and file type recognition.
-You can have several independent uploaders on a page and module is customizable for several different scenarios. 
+It provides standard resumable.js ability to pause or cancel upload along with progress monitoring. In addition to that it includes previews and real file type recognition. You also can have several independent uploaders on a page and module is customizable for several different scenarios. 
 Video demonstration on youtube, link below:
 
 https://www.youtube.com/embed/z39T05VbD-g
