@@ -3,9 +3,14 @@ Adaptation of Resumable.js for Symfony with javascript based of <a href="https:/
 
 Javascript part includes previews and file type recognition.
 You can have several independent uploaders on a page and module is customizable for several different scenarios. 
+Video demonstration on youtube, link below:
 
 https://www.youtube.com/embed/V9TC0pJzAVM
 
+Screenshot of asweare.life admin site
+
 <img src="https://github.com/Dodotree/ResumableSymfony/blob/master/Capture11.JPG?raw=true">
+
+Screenshot of Sportsrush site
 
 <img src="https://github.com/Dodotree/ResumableSymfony/blob/master/Capture8.JPG?raw=true">
