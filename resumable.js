@@ -1,6 +1,7 @@
 define([
-  'jquery'
-], function($){
+  'jquery',
+  'fileType'
+], function($, checkFileType){
 
     // SUPPORTED BY BROWSER?
     // Check if these features are support by the browser:
@@ -10,15 +11,19 @@ define([
     // - slicing files
 
 
-var ResumableFile = function(file){
-    this.init(file);
+var Resumable = function(config){
+    this.init(config);
 };
 
-var ResumableChunk = function(fileObj, offset){
-    this.init(fileObj, offset);
+var ResumableFile = function(file, context){
+    this.init(file, context);
 };
 
-var Resumable = {
+var ResumableChunk = function(fileObj, offset, context){
+    this.init(fileObj, offset, context);
+};
+
+Resumable.prototype = {
 
     support: typeof(File)!=='undefined'
                    &&
@@ -28,14 +33,17 @@ var Resumable = {
                    &&
              (!!Blob.prototype.webkitSlice||!!Blob.prototype.mozSlice||!!Blob.prototype.slice||false),
 
+    round: $.noop,
     files: [],
     events: [],
 
     maxFiles: undefined,
+    simultaneousUploads: 3,
+
     minFileSize: 1,
     maxFileSize: undefined,
-    fileType: [],
-    generateUniqueIdentifier: null,
+        /* svg, obj, mtl can not be determinded by magic numbers, so we will have to rely on file extension */
+    allowedFileTypes: ['jpg', 'png', 'gif', 'bmp', 'svg', 'tif', 'ico', 'mp4', 'webm', 'mov','avi', 'ogg', 'ogv', 'mpg', 'mp4', 'obj', 'mtl', 'pdf'],
 
     chunkSize: 1*1024*1024,
     forceChunkSize: false,
@@ -43,9 +51,8 @@ var Resumable = {
     chunkRetryInterval: undefined,
     maxChunkRetries: undefined,
     testChunks: true,
-    simultaneousUploads: 3,
 
-    round: function(){},
+
     slice: ( Blob.prototype.slice ? 'slice' : 
            ( Blob.prototype.mozSlice ? 'mozSlice' : 
            ( Blob.prototype.webkitSlice ? 'webkitSlice' : 'slice'))),
@@ -59,22 +66,21 @@ var Resumable = {
     withCredentials: false,
     xhrTimeout: 0,
 
-    maxFilesErrorCallback: function (files, errorCount) {
-        var maxFiles = this.maxFiles;
-        alert('Please upload ' + maxFiles + ' file' + (maxFiles === 1 ? '' : 's') + ' at a time.');
+    maxFilesErrorCallback: function (files, set_param, errorCount) {
+        var message = 'Please upload ' + set_param + ' file' + (set_param === 1 ? '' : 's') + ' at a time.';
+        this.fire('error', null, message);
     },
-    minFileSizeErrorCallback: function(file, errorCount) {
-        alert(file.fileName||file.name +' is too small, please upload files larger than ' + this.formatSize( this.minFileSize ) + '.');
+    minFileSizeErrorCallback: function(file, set_param, errorCount) {
+        var message = file.fileName||file.name +' is too small, please upload files larger than ' + this.formatSize(set_param) + '.';
+        this.fire('error', {'name': file.fileName||file.name}, message);
     },
-    maxFileSizeErrorCallback: function(file, errorCount) {
-        alert(file.fileName||file.name +' is too large, please upload files less than ' + this.formatSize( this.maxFileSize ) + '.');
+    maxFileSizeErrorCallback: function(file, set_param, errorCount) {
+        var message = file.fileName||file.name +' is too large, please upload files less than ' + this.formatSize(set_param) + '.';
+        this.fire('error', {'name': file.fileName||file.name}, message);
     },
-    fileTypeErrorCallback: function(file, errorCount) {
-        alert(file.fileName||file.name +' has type not allowed, please upload files of type ' + this.fileType + '.');
-    },
-
-    init: function(opts){
-        this.round = Resumable.forceChunkSize ? Math.ceil : Math.floor;
+    fileTypeErrorCallback: function(file, set_param, errorCount) {
+        var message = file.fileName||file.name +' has type not allowed, please upload files of type ' + set_param.join(', ') + '.';
+        this.fire('error', {'name': file.fileName||file.name}, message);
     },
 
     formatSize:function(size){
@@ -104,8 +110,6 @@ var Resumable = {
     // fileSuccess(file), fileProgress(file), fileAdded(file, event), fileRetry(file), fileError(file, message),
     // complete(), progress(), error(message, file), pause()
     on: function(event, callback){
-console.log(this.events.length);
-        callback.identity = "aaaaaa";
         this.events.push(event.toLowerCase(), callback);
     },
 
@@ -114,22 +118,47 @@ console.log(this.events.length);
         for (var i=0; i<arguments.length; i++){ args.push(arguments[i]); }
         // Find event listeners, and support pseudo-event `catchAll`
         var event = args[0].toLowerCase();
-console.log(this.events);
         for (var i=0; i <= this.events.length; i+=2) {
             if( this.events[i] == event){      this.events[i+1].apply( this, args.slice(1)); }
             if( this.events[i] == 'catchall'){ this.events[i+1].apply( null, args); }
         }
-        if(event=='fileerror'){    Resumable.fire('error', args[2], args[1]);}
-        if(event=='fileprogress'){ Resumable.fire('progress'); }
+        if(event=='fileerror'){    this.fire('error', args[2], args[1]);}
+        if(event=='fileprogress'){ this.fire('progress'); }
     },
 
 
-    assignBrowse: function(domNodes, optionalParams,  holder, isDirectory){
+    init: function(opts){
+        this.round = this.forceChunkSize ? Math.ceil : Math.floor;
 
-        if(!domNodes){ return; }
-        if('undefined' ===  typeof(domNodes.length)){ domNodes = [domNodes]; }
+        // making private collections
+        this.files = [];
+        this.events = [];
 
-        $.each(domNodes, function(i, domNode){
+        // resumable options
+        this.maxFiles = ('undefined' != typeof(opts.maxFiles))? opts.maxFiles: this.maxFiles;
+        this.simultaneousUploads = ('undefined' != typeof(opts.simultaneousUploads))? opts.simultaneousUploads: this.simultaneousUploads;
+
+        // defaults for inputs
+        this.minFileSize = ('undefined' != typeof(opts.minFileSize))? opts.minFileSize: this.minFileSize;
+        this.maxFileSize = ('undefined' != typeof(opts.maxFileSize))? opts.maxFileSize: this.maxFileSize;
+        this.allowedFileTypes = ('undefined' != typeof(opts.allowedFileTypes) && null !== opts.allowedFileTypes)? 
+                                    $.merge([], opts.allowedFileTypes) : this.allowedFileTypes; 
+    },
+
+
+    assignBrowse: function(btn_config){
+
+        if(!btn_config.obj){ return; }
+        if('undefined' ===  typeof(btn_config.obj.length)){ btn_config.obj = [btn_config.obj]; }
+
+        btn_config.maxFiles = ('undefined' != typeof(btn_config.maxFiles))? btn_config.maxFiles: this.maxFiles;
+        btn_config.minFileSize = ('undefined' != typeof(btn_config.minFileSize))? btn_config.minFileSize: this.minFileSize;
+        btn_config.maxFileSize = ('undefined' != typeof(btn_config.maxFileSize))? btn_config.maxFileSize: this.maxFileSize;
+        btn_config.allowedFileTypes = ('undefined' != typeof(btn_config.allowedFileTypes) && btn_config.allowedFileTypes)? $.merge([], btn_config.allowedFileTypes) : this.allowedFileTypes; 
+
+        var that = this;
+
+        $.each(btn_config.obj, function(i, domNode){
 
             var input;
             if(domNode.tagName === 'INPUT' && domNode.type === 'file'){
@@ -149,13 +178,13 @@ console.log(this.events);
                 domNode.appendChild(input);
             }
 
-            if('undefined' === typeof( this.maxFiles ) || this.maxFiles!=1){
+            if('undefined' === typeof( btn_config.maxFiles ) || btn_config.maxFiles!=1){
                 input.setAttribute('multiple', 'multiple');
             }else{
                 input.removeAttribute('multiple');
             }
 
-            if(isDirectory){
+            if(btn_config.isDirectory){
                 input.setAttribute('webkitdirectory', 'webkitdirectory');
             }else{
                 input.removeAttribute('webkitdirectory');
@@ -164,9 +193,9 @@ console.log(this.events);
             // When new files are added, simply append them to the overall list
             input.addEventListener('change', function(e){
 console.log('on change');
-                Resumable.appendFilesFromFileList(e.target.files, optionalParams, holder, e);
+                that.appendFilesFromFileList(e, e.target.files, btn_config);
 
-                if ( Resumable.clearInput ) { e.target.value = ''; }  /// ???
+                if ( that.clearInput ) { e.target.value = ''; }  /// ???
 
             }, false);
 
@@ -175,13 +204,12 @@ console.log('on change');
     }, // end of assign Browse
 
 
-    addFile: function(file, optionalParams,  holder, event){
-console.log('addFile');
-        Resumable.appendFilesFromFileList([file], optionalParams, holder, event);
+    addFile: function(file, optionalParams,  holder, event){  // for manipulation from outside
+        this.appendFilesFromFileList(event, [file], btn_config);
     },
 
     removeFile: function(file){
-        for(var i = Resumable.files.length - 1; i >= 0; i--) {
+        for(var i = this.files.length - 1; i >= 0; i--) {
             if(this.files[i] === file) {
                 this.files[i] = file = null;
                 this.files.splice(i, 1);
@@ -199,65 +227,75 @@ console.log('addFile');
     },
 
 
-    appendFilesFromFileList: function(fileList, optionalParams, holder, event){
+    appendFilesFromFileList: function(event, fileList, btn_config){
         // check for uploading too many files
         var errorCount = 0;
 
-        if( 'undefined' !== typeof(this.maxFiles) && this.maxFiles < fileList.length + this.files.length ) {
+        if( 'undefined' !== typeof(btn_config.maxFiles) && btn_config.maxFiles < fileList.length + this.files.length ) {
             // if single-file upload, file is already added, and trying to add 1 new file, simply replace the already-added file 
-            if( this.maxFiles === 1 && this.files.length === 1 && fileList.length === 1 ) {
+            if( btn_config.maxFiles === 1 && this.files.length === 1 && fileList.length === 1 ) {
                 this.removeFile( this.files[0] );
             } else {
-                this.maxFilesErrorCallback(fileList, errorCount++);
+                this.maxFilesErrorCallback(fileList, btn_config.maxFiles, errorCount++);
                 return false;
             }
         }
 
         var files = [];
+        var that = this;
 
         $.each( fileList, function(i, file){
-console.log(file.name);
-
-            var fileName = file.name.split('.'); 
-            var fileType = fileName[fileName.length-1].toLowerCase();
-            if ( !$.inArray( fileType, Resumable.fileType)) {
-                Resumable.fileTypeErrorCallback(file, errorCount++);
-                return false;
-            }
 
             // directories have size == 0
-            if ( 'undefined' !== typeof(Resumable.minFileSize) && file.size < Resumable.minFileSize) {
-                Resumable.minFileSizeErrorCallback(file, errorCount++);
+            if ( 'undefined' !== typeof(btn_config.minFileSize) && file.size < btn_config.minFileSize) {
+                that.minFileSizeErrorCallback(file, btn_config.minFileSize, errorCount++);
                 return false;
             }
 
-            if ( 'undefined' !== typeof(Resumable.maxFileSize) && file.size > Resumable.maxFileSize) {
-                Resumable.maxFileSizeErrorCallback(file, errorCount++);
+            if ( 'undefined' !== typeof(btn_config.maxFileSize) && file.size > btn_config.maxFileSize) {
+                that.maxFileSizeErrorCallback(file, btn_config.maxFileSize, errorCount++);
                 return false;
             }
 
-            /// closure with timeout 0 to open File process
-            if( !Resumable.getFromUniqueIdentifier( Resumable.generateUniqueIdentifier(file) )) {
-                (function(){
-                    var FO = new ResumableFile( file ); // FO - file object
-                    FO.optionalParams = optionalParams;
-                    FO.holder = holder;
-                    window.setTimeout(function(){
-                        Resumable.files.push(FO);
-                        files.push(FO);
-                        // FO.container = (typeof event != 'undefined' ? event.srcElement : null);
-console.log('************');
-                        Resumable.fire('fileAdded', FO, event)
-console.log('^^^^^^^^^^^^');
+            var reader = new FileReader();    // Create instance of file reader. It is asynchronous!
+            var file_slice = file[ that.slice ](0, 4 + 4096);
+            reader.onload = function(e) {
+                var slice_buf = reader.result;
+                var fileType = checkFileType( slice_buf );
+                // .obj and .mtl will return null
+                var fileName = file.name.split('.'); 
+                var dot_extension = fileName[fileName.length-1].toLowerCase();
+                var extension = (fileType)? fileType.ext : dot_extension;
 
-                    },0);
-                })();
+                if ( $.inArray(extension, btn_config.allowedFileTypes) == -1 ) {
+                    that.fileTypeErrorCallback(file, btn_config.allowedFileTypes, errorCount++);
+                    return false;
+                }
+
+                /// closure with timeout 0 to open File process
+                if( !that.getFromUniqueIdentifier( that.generateUniqueIdentifier(file) )) {
+                    (function(){
+                        var FO = new ResumableFile( file, that ); // FO - file object, gets file and context
+                        FO.mimeType = fileType;
+                        FO.extension = extension;
+                        FO.optionalParams = $.extend( {}, btn_config.optionalParams ); 
+                        FO.holder = btn_config.holder;
+                        window.setTimeout(function(){
+                            that.files.push(FO);
+                            files.push(FO);
+                            // FO.container = (typeof event != 'undefined' ? event.srcElement : null);
+                            that.fire('fileAdded', FO, event);
+                            if( i+1 == fileList.length ){
+                                window.setTimeout(function(){
+                                    that.fire('filesAdded', that.files)
+                                },0);
+                            }
+                        },0);
+                    })();
+                }
             }
+            reader.readAsArrayBuffer(file_slice);
         });
-
-        window.setTimeout(function(){
-            Resumable.fire('filesAdded', Resumable.files)
-        },0);
     },
 
 
@@ -266,7 +304,7 @@ console.log('^^^^^^^^^^^^');
         // In some cases (such as videos) it's really handy to upload the first
         // and last chunk of a file quickly; this let's the server check the file's
         // metadata and determine if there's even a point in continuing.
-        if (Resumable.prioritizeFirstAndLastChunk) {
+        if (this.prioritizeFirstAndLastChunk) {
             for(var i=0, file=this.files[0]; i < this.files.length; i++, file=this.files[i]){
                 if( file.chunks.length && file.chunks[0].status() == 'pending' ) {
                     file.chunks[0].send();
@@ -371,14 +409,15 @@ ResumableFile.prototype = {
     _error: false,
     maxOffset: 1,
 
-    init: function(file){
+    init: function(file, context){
+        this.context = context;
         this.file = file;
         this.fileName = file.fileName||file.name; // Some confusion in different versions of Firefox
         this.relativePath = file.webkitRelativePath || file.relativePath || this.fileName;
         this.size = file.size,
-        this.uniqueIdentifier = Resumable.generateUniqueIdentifier(file);
+        this.uniqueIdentifier = context.generateUniqueIdentifier(file);
 
-        Resumable.fire('chunkingStart', this);
+        context.fire('chunkingStart', this);
         this.bootstrap();
     },
 
@@ -389,25 +428,27 @@ ResumableFile.prototype = {
         this._error = false;
         this._prevProgress = 0;
         this.chunks = [];
-        this.maxOffset = Math.max( Resumable.round( this.file.size/Resumable.chunkSize ), 1);
+        this.maxOffset = Math.max( this.context.round( this.file.size/this.context.chunkSize ), 1);
 
         var FO = this;
+        var that = this;
 
         for (var offset=0; offset < FO.maxOffset; offset++) {
             // very closed closure with timeout 0
             (function(offset){
                 window.setTimeout(function(){
-                    FO.chunks.push(new ResumableChunk(FO, offset));
-                    Resumable.fire('chunkingProgress', FO, offset/FO.maxOffset);
+                    FO.chunks.push(new ResumableChunk(FO, offset, that.context));
+                    that.context.fire('chunkingProgress', FO, offset/FO.maxOffset);
                 },0);
             })(offset)
         }
         window.setTimeout(function(){ 
-            Resumable.fire('chunkingComplete', FO); 
+            that.context.fire('chunkingComplete', FO); 
         },0);
     },
 
     resetQuery: function(){
+console.log('resetting', this.fileName);
         $.each(this.chunks, function(i,chunk){
             chunk.setQuery();
         });
@@ -423,7 +464,7 @@ ResumableFile.prototype = {
             }
         }
         if(abortCount > 0){
-            Resumable.fire('fileProgress', this);
+            this.context.fire('fileProgress', this);
         }
     },
 
@@ -433,19 +474,19 @@ ResumableFile.prototype = {
         for(var i=0, chunk=_chunks[0]; i < _chunks.length; i++, chunk=_chunks[i]){
             if(chunk.status() == 'uploading')  {
                 chunk.abort();
-                Resumable.uploadNextChunk();
+                this.context.uploadNextChunk();
             }
         }
-        Resumable.fire('fileProgress', this);
-        Resumable.removeFile(this);
+        this.context.fire('fileProgress', this);
+        this.context.removeFile(this);
     },
 
     retry: function(){
         this.bootstrap();
         var firedRetry = false;
-        Resumable.on('chunkingComplete', function(){
+        this.context.on('chunkingComplete', function(){
             if(!firedRetry){ 
-                Resumable.upload(); 
+                this.context.upload(); 
                 firedRetry = true;
             }
         });
@@ -511,7 +552,8 @@ ResumableChunk.prototype = {
     retries: 0,
     pendingRetry: false, */
 
-    init: function(fileObj, offset){
+    init: function(fileObj, offset, context){
+        this.context = context;
         this.FO = fileObj;
         this.offset = offset;
         this.xhr = null;
@@ -522,26 +564,28 @@ ResumableChunk.prototype = {
         this.tested = false;
         this.pendingRetry = false;
 
-        var chunkSize = Resumable.chunkSize;
+        var chunkSize = context.chunkSize;
         this.startByte = offset*chunkSize;
         this.endByte = Math.min(this.FO.size, (offset+1)*chunkSize);
-        if(this.FO.size - this.endByte < chunkSize   && !Resumable.forceChunkSize){
+        if(this.FO.size - this.endByte < chunkSize   && !this.context.forceChunkSize){
             this.endByte = this.FO.size; 
         }
         this.weight = this.endByte - this.startByte;
         this.rel_weight = this.weight/this.FO.size;
 
-        this.retryInterval = ('undefined' === typeof(Resumable.chunkRetryInterval))? 0 : Resumable.chunkRetryInterval;
-        this.query = this.setQuery();
+        this.retryInterval = ('undefined' === typeof(this.context.chunkRetryInterval))? 0 : this.context.chunkRetryInterval;
+        this.setQuery();
+//console.log('query>>', this.query);
     },
 
 
     setQuery: function(){
         // Set up the basic query data from Resumable
         var query = {
-          resumableChunkSize:   Resumable.chunkSize,
+          resumableChunkSize:   this.context.chunkSize,
           resumableTotalSize:   this.FO.size,
-          resumableType:        this.FO.type, /// not used
+          resumableType:        (this.FO.mimeType)? this.FO.mimeType.mime : '', 
+          resumableExt:         this.FO.extension, 
           resumableIdentifier:  this.FO.uniqueIdentifier,
           resumableFilename:    this.FO.fileName,
           resumableRelativePath:this.FO.relativePath,
@@ -552,8 +596,10 @@ ResumableChunk.prototype = {
           chunkEndByte:   this.endByte,
           resumableTotalChunks:      this.FO.maxOffset
         };
+console.log( 'setQuery', this.FO.fileName, this.FO.optionalParams);
         $.each( this.FO.optionalParams, function(k, val){
-            query[ "param[" + k + "]" ] = val;
+            var param_name = 'param[' + k + ']';
+            query[ param_name ] = val;
         });
 
         this.query =  query;
@@ -582,20 +628,20 @@ ResumableChunk.prototype = {
 
     chunkEvent: function(event, message){
         if( event == 'progress'){
-            Resumable.fire('fileProgress', this.FO);
+            this.context.fire('fileProgress', this.FO);
         }else if(  event == 'error' ){
             this.FO.abort();
             this.FO.chunks.length = 0;
-            Resumable.fire('fileError', this.FO, message);
-            Resumable.uploadNextChunk();
+            this.context.fire('fileError', this.FO, message);
+            this.context.uploadNextChunk();
         }else if(  event == 'success' ){
-            Resumable.fire('fileProgress', this.FO);
-            Resumable.uploadNextChunk();
+            this.context.fire('fileProgress', this.FO);
+            this.context.uploadNextChunk();
             if( this.FO.isComplete() ){
-                Resumable.fire('fileSuccess', this.FO, message);
+                this.context.fire('fileSuccess', this.FO, message);
             }
         }else if(  event == 'retry' ){
-            Resumable.fire('fileRetry', this.FO);
+            this.context.fire('fileRetry', this.FO);
         }
     },
 
@@ -620,7 +666,7 @@ ResumableChunk.prototype = {
                 }
 
                 return 'error';
-            } else if($.inArray( this.xhr.status, Resumable.permanentErrors) !=-1 || this.retries >= Resumable.maxChunkRetries) {
+            } else if($.inArray( this.xhr.status, this.context.permanentErrors) !=-1 || this.retries >= this.context.maxChunkRetries) {
                 // HTTP 415/500/501, permanent error
                 return('error');
             } else {
@@ -633,7 +679,7 @@ ResumableChunk.prototype = {
     }, 
 
     onXHRProgress: function(e){ //throttle in seconds
-      if( (new Date) - this.lastProgressTime > Resumable.throttleProgressCallbacks * 1000 ) { 
+      if( (new Date) - this.lastProgressTime > this.context.throttleProgressCallbacks * 1000 ) { 
           this.chunkEvent('progress');
           this.lastProgressTime = (new Date);
       }
@@ -666,11 +712,13 @@ ResumableChunk.prototype = {
     }, 
 
     test: function(){
-        this.callServer( Resumable.target + '?' + $.param( this.query ), 'GET', null, this.onTestXHRDone );
+console.log('test', this.query);
+        this.callServer( this.context.target + '?' + $.param( this.query ), 'GET', null, this.onTestXHRDone );
     },
 
     send: function(){
-        if(Resumable.testChunks && !this.tested){
+console.log('send');
+        if(this.context.testChunks && !this.tested){
             this.test();
             return;
         }
@@ -679,17 +727,17 @@ ResumableChunk.prototype = {
         this.pendingRetry = false;
         this.chunkEvent('progress');
 
-        var bytes  = this.FO.file[ Resumable.slice ]( this.startByte, this.endByte);
+        var bytes  = this.FO.file[ this.context.slice ]( this.startByte, this.endByte);
         var data   = null;
-        var URL = Resumable.target;
+        var URL = this.context.target;
 
-        if ( Resumable.method === 'octet') { // Add data from the query options
+        if ( this.context.method === 'octet') { // Add data from the query options
             data = bytes;
             var paramsStr = $.param( this.query );
             URL += '?' + paramsStr;  // 'get' params for post???
         } else { // create form and fill it
             data = new FormData();
-            data.append( Resumable.fileParameterName, bytes); /// param being 'file'
+            data.append( this.context.fileParameterName, bytes); /// param being 'file'
             $.each( this.query, function(k,v){ data.append(k,v); });
         }
 
@@ -707,9 +755,10 @@ ResumableChunk.prototype = {
         this.xhr.addEventListener('timeout', function(e){ serv_callback.call(that,e) }, false);
 
         this.xhr.open(method, URL);
-        this.xhr.timeout =  Resumable.xhrTimeout;
-        this.xhr.withCredentials = Resumable.withCredentials;
-        $.each( Resumable.headers, function(k,v) { this.xhr.setRequestHeader(k, v); });
+        this.xhr.timeout = this.context.xhrTimeout;
+        this.xhr.withCredentials = this.context.withCredentials;
+console.log( 'headers ', this.context.headers );
+        $.each( this.context.headers, function(k,v) { this.xhr.setRequestHeader(k, v); });
         this.xhr.send(data);
     }
 };

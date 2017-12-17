@@ -1,138 +1,27 @@
 define([
   'jquery',
-  'moment',
-  'resumable'
-], function ($, moment, r) {
-
-
-FileUI.init();
-
-
-
-    var FileUI = {
-        init: function(){
-          var panel_obj = FileUI.getUploadPanel();
-          var holder =    FileUI.getUploadHolder();
-          var panel = {
-                'obj': panel_obj,
-                'pause_btn':  panel_obj.find(".upload-panel-size"),
-                'cancel_btn': panel_obj.find(".upload-panel-cancel"),
-                'holders': [holder]
-          };
-
-          var uploadConfig = {  startImmediatelyBool: false,
-                                panel:  panel,
-                                getUploadNode:         FileUI.getUploadNode,
-                                onUploadPanelChange:   FileUI.onUploadPanelChange,
-                                onUploadStart:         FileUI.onUploadStart,
-                                onUploadNodeProgress:  FileUI.onUploadNodeProgress,
-                                onUploadPanelProgress: FileUI.onUploadPanelProgress,
-                                toggleUploadPause:     FileUI.toggleUploadPause,
-                                onHolderPause:         FileUI.onHolderPause,
-                                preUpload:             FileUI.preUpload,
-                                postNodeUpload:        FileUI.postNodeUpload,
-                                postUpload:            FileUI.postUpload };
-          var team_id = $('#post_team_id').val();
-          var event_id = $('#post_event_id').val();
-          var club_id = $('#post_club_id').val();
-          var optionalParams = {type: 'image', team: team_id, club: club_id, event: event_id};
-          FileUploader.init( uploadConfig, $('#browseButton'), $('.postRegion-button .btn'), holder, optionalParams );
-          var optionalParams2 = {type: 'video', team: team_id, club: club_id, event: event_id};
-          FileUploader.init( uploadConfig, $('#browseButton2'), $('.postRegion-button .btn'), holder, optionalParams2 );
-        },
-
-        preUpload: function(files){
-            $.each(files, function(i, file){
-                console.log(file);
-                $.extend( file.optionalParams, {'text': $('#post_writeString').val()} );
-                file.resetQuery();
-            });
-        return true;
-        },
-
-        postNodeUpload: function(node, reply, file){
-            node.remove();
-            if( 'undefined' != typeof(reply.successes) && 'undefined' != typeof(reply.successes.post) ){
-                postings.addNewPost(reply.successes.post);    
-            }
-        },
-        postUpload: function(panel){
-            panel.obj.empty();
-        },
-
-        onUploadStart: function(panel){
-            $.each(panel.holders, function(i, holder){
-                holder.find('.upload').addClass('uploading');
-            });
-        },
-
-        onUploadPanelProgress: function(panel, d){
-            var total = panel.obj.find(".total-upload-node");
-            total.find('.progress-bar-fill').width(d*100 +'%');
-        },
-
-        onUploadNodeProgress: function(node, d){
-            node.find('.progress-bar-fill').width(d*100 +'%');
-        },
-
-        toggleUploadPause: function(node, pausedBool){
-            node.toggleClass('paused', pausedBool);
-        },
-        onHolderPause: function(holder){
-            holder.find('.upload').addClass('paused');
-        },
-
-        onUploadPanelChange: function( panel, files_length, tot_size, total_size_str ){
-            var total = panel.obj.find(".upload-panel-totals");
-            total.find('.upload-panel-size').html( total_size_str );
-            //total.toggle( tot_size>0 && files_length>1 );
-            panel.obj.toggleClass('filled', files_length>0);
-        },
-
-        getUploadNode: function(file_id, file_name, file_size){
-            var item = $( '<div id="' + file_id + '" class="upload">'
-                        + '<div class="progress-bar-fill"></div>'
-                        + '<a class="upload-remove" href="#"><i class="icon-delete"></i></a>'
-                        +  '<span class="upload-file-size">' + file_size + '</span>'
-                        + '<span class="upload-file-name">'  + file_name + '</span>'
-                        +'</div>');
-            item.find('.progress-bar-fill').width(0 +'%');
-            item[0].cancel_btn = item.find('.upload-remove');
-        return item;
-        },
-
-        getUploadHolder: function(){
-            return $(".files-holder").find(".upload-nodes-holder");
-        },
-
-        getUploadPanel: function(){
-            var panel = $(".files-holder");
-            panel.append('<div class="upload-panel-totals">'
-                        + '<div class="progress-bar-fill"></div>'
-                        + '<span class="upload-panel-size"></span>'
-                        + '<a class="upload-panel-cancel" href="#">&times;</a>'
-                        + '</div>'
-                        +'<div class="upload-nodes-holder"></div>');
-            return $(".files-holder");
-        }
-    };
-
-
+  'resumable2'
+], function ($, Resumable) {
 
 
     var FileUploader = {
         
-        eventsBinded: false,
-
-        bind: function(upload_btn, holder, pre_upload_callback){
+        bind: function(resumable, config, upload_btn, pre_upload_callback){
             upload_btn.off('click').on('click', function(e){
                 e.preventDefault();
-                if( pre_upload_callback( r.files ) ){
-                    r.upload();
+//console.log('Uploading? ', resumable.isUploading());
+                if( resumable.isUploading() ){
+                    resumable.pause();
+                    $.each(resumable.files, function(i, file){ file.holder.addClass('paused'); });
+//console.log('pause');
+                }else if( pre_upload_callback( resumable.files ) ){
+//console.log('upload');
+                    FileUploader.startUpload(resumable, config);
                 }
             });
         },
-        bindNode: function(item, config){
+
+        bindNode: function(resumable, item, config){
             item.on('click', function(e){
                 e.preventDefault();
                 var pauseBool = !item[0].file.isPaused();
@@ -144,112 +33,167 @@ FileUI.init();
                 e.preventDefault();
                 item[0].file.cancel();
                 item.remove();
-                FileUploader.setPanelSize(config);
+                FileUploader.setPanelSize(resumable, config);
             });
-        },
-        bindPanel: function(panel){
-            panel.pause_btn.off('click').on('click', function(e){
-                e.preventDefault();
-                r.pause(); 
-            });
-            panel.cancel_btn.off('click').on('click', function(e){
-                e.preventDefault();
-                r.cancel();
-            });
-        },
-        setPanelSize: function(config){
-            var tot_size = r.getSize();
-            config.onUploadPanelChange( config.panel, r.files.length, tot_size,  r.formatSize(tot_size));
         },
 
-        init: function( config, browse_button, upload_btn, holder, optionalParams ){ 
-            if(!r.support){
-                //console.log( 'hooray, nothing to do');
+        bindPanel: function(resumable, panel){
+            if( 'undefined' != typeof(panel.pause_btn) && panel.pause_btn ){
+                panel.pause_btn.off('click').on('click', function(e){
+                    e.preventDefault();
+                    resumable.pause(); 
+                });
+            }
+            if( 'undefined' != typeof(panel.pause_btn) && panel.cancel_btn ){
+                panel.cancel_btn.off('click').on('click', function(e){
+                    e.preventDefault();
+                    resumable.cancel();
+                });
+            }
+        },
+
+        setPanelSize: function(resumable, config){
+            var tot_size = resumable.getSize();
+            config.panel.obj.toggle(resumable.files.length > 0);
+            config.onUploadPanelChange( config.panel, resumable.files.length, tot_size,  
+                                                      resumable.formatSize(tot_size));
+        },
+
+        startUpload: function(resumable, config){
+            $.each(resumable.files, function(i, file){ file.holder.removeClass('paused').addClass('uploading'); });
+            resumable.upload();
+        },
+
+        init: function( config, btn_configs, upload_btn ){ 
+            var resumable = new Resumable({});
+
+            if(!resumable.support){
                 return;
             }
-            
-            r.init({});
-            r.assignBrowse(browse_button[0], optionalParams,  holder);
 
-            FileUploader.bind(upload_btn, holder, config.preUpload);
-            FileUploader.bindPanel(config.panel);
+            if( 'undefined' == typeof(config.panel) || 'undefined' == typeof(config.panel.obj) ){
+                console.log( "File Uploader: no panel provided");
+                return;
+            }
+            if( 'undefined' == typeof(config.panel.holders) ){
+                config.panel.holders = [config.panel.obj];
+            }
+
+            var callback_names = ["getUploadNode", "onUploadPanelChange", "onUploadStart", 
+                                  "onUploadNodeProgress", "onUploadPanelProgress",
+                                  "toggleUploadPause", "onPanelPause", "postNodeUpload", "postUpload"];
+            $.each(callback_names, function(i,n){
+                if('undefined' == typeof(config[n])){
+                    console.log( "File Uploader: No " + n + " function provided." );
+                    config[n] = $.noop;
+                }
+            });
+            if('undefined' == typeof(config.preUpload)){
+                config.preUpload = function(){ return true; }
+            }
+            
+            $.each(btn_configs, function(i, btn_config){
+                resumable.assignBrowse(btn_config);
+            });
+
+            if( !config.startImmediatelyBool && 'undefined' != typeof(upload_btn) && upload_btn){
+                FileUploader.bind(resumable, config, upload_btn, config.preUpload);
+            }
+            FileUploader.bindPanel(resumable, config.panel);
+            FileUploader.setPanelSize(resumable, config);
 
             // mostly DOM event
-            r.on('fileAdded', function(file, event){
+            resumable.on('fileAdded', function(file, event){
                 console.debug('fileAdded', 'event > ', event);
             });
 
-            // subscribe only once
-            if( this.eventsBinded ){ return; }
-            this.eventsBinded = true;
-
             // after files really registered 
-            r.on('filesAdded', function(files){
-                console.debug('filesAdded', 'array>', files.length, r.files.length);
+            resumable.on('filesAdded', function(files){
+                console.debug('filesAdded', 'array>', files.length, resumable.files.length);
 
                 $.each( files, function(i, file){
                     if( $('#'+ file.uniqueIdentifier).length == 0 ){
-                        var item = config.getUploadNode(file.uniqueIdentifier, file.fileName, r.formatSize( file.size ));
+                        var item = config.getUploadNode(file.holder, file.file, file.uniqueIdentifier, file.fileName, 
+                                                        file.extension, resumable.formatSize( file.size ));
                         item[0].id = file.uniqueIdentifier;
                         item[0].file = file;
-                        holder.append( item );
-                        FileUploader.bindNode(item, config);
+                        file.holder.append( item );
+                        FileUploader.bindNode(resumable, item, config);
                     }
                 });
 
-                FileUploader.setPanelSize(config);
+                FileUploader.setPanelSize(resumable, config);
 
                 if(  config.startImmediatelyBool ){
                     setTimeout( function(){
-                        r.upload();
+                        FileUploader.startUpload(resumable, config);
                     }, 300);
                 }
             });
 
-            r.on('uploadStart', function(){
+            resumable.on('uploadStart', function(){
                 config.onUploadStart( config.panel );
             });
-            r.on('progress', function(){ 
-                //console.debug('progress'); 
-                config.onUploadPanelProgress( config.panel, r.progress() );
+            resumable.on('progress', function(){ 
+                config.onUploadPanelProgress( config.panel, resumable.progress() );
             });
-            r.on('fileProgress', function(file){ 
+            resumable.on('fileProgress', function(file){ 
                 //console.debug('fileProgress', file); 
                 config.onUploadNodeProgress( $('#' + file.uniqueIdentifier), file.progress() );
             });
                 
-            r.on('fileSuccess', function(file, message){ 
+            resumable.on('fileSuccess', function(file, message){ 
                 var reply = ('string' == typeof(message))? JSON.parse(message) : message; 
                 config.postNodeUpload( $('#' + file.uniqueIdentifier), reply, file );
-                FileUploader.setPanelSize(config);
+                FileUploader.setPanelSize(resumable, config);
             });
-            r.on('fileRetry', function(file){          console.debug('fileRetry', file); });
-            r.on('fileError', function(file, message){ 
-                var reply = ('string' == typeof(message))? JSON.parse(message) : message; 
+            resumable.on('fileRetry', function(file){          console.debug('fileRetry', file); });
+            resumable.on('fileError', function(file, message){ 
+                var reply = (message && 'string' == typeof(message))? JSON.parse(message) : message; 
+                flashCard.add('danger', message);
                 config.postNodeUpload( $('#' + file.uniqueIdentifier), reply, file );
             });
-            r.on('error', function(message, file){     
+            resumable.on('error', function(file, message){     
                 console.debug('error', message, file); 
+                flashCard.add('danger', message);
             });
 
-            r.on('complete', function(){ /* all done */ 
+            resumable.on('complete', function(){ /* all done */ 
                 config.postUpload( config.panel );
+                $.each(config.panel.holders, function(i, holder){ holder.removeClass('paused uploading'); });
             });
-            r.on('pause', function(){ /*all files paused*/
-                $.each( config.panel.holders, function(i,holder){
-                    config.onHolderPause(holder);
-                });
+            resumable.on('pause', function(){ /*all files paused*/
+                config.onPanelPause(config.panel);
             });
-            r.on('cancel', function(){ /* cancel all files */
-                $.each( config.panel.holders, function(i,holder){
-                    holder.empty();
-                });
-                FileUploader.setPanelSize(config);
+            resumable.on('cancel', function(){ /* cancel all files */
+                // it will never happen if you don't have cancel-all btn
+                $.each( config.panel.holders, function(i,holder){ holder.empty(); });
+                FileUploader.setPanelSize(resumable, config);
             });
         }
     };
 
 
+    var flashCard = {
+        dismiss: function(){
+            var this_card = $(this);
+            this_card.addClass( 'way-to-the-right' );
+            setTimeout(function(){ this_card.remove(); }, 500 );
+        },
 
-  // return FileUI;
+        add: function( type, note ){
+           var box = $('.flash-box');
+           var card  = $(
+             '<div class="flash-card way-below ' + type + '">\
+                <div class="flash-card-icon"><i class="icon3-flash"></i></div>\
+                <div class="flash-card-text">' + note + '</div>\
+             </div>').appendTo( box );
+           setTimeout(function(){ card.removeClass('way-below'); }, 100 );
+           card.bind('click', flashCard.dismiss);
+           setTimeout(function(){ card.fadeOut(600, function(){ card.remove(); }) }, 5000 );
+        }
+    };
+
+
+  return FileUploader;
 });
