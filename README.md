@@ -5,7 +5,7 @@ Javascript part includes previews and file type recognition.
 You can have several independent uploaders on a page and module is customizable for several different scenarios. 
 Video demonstration on youtube, link below:
 
-https://www.youtube.com/embed/V9TC0pJzAVM
+https://www.youtube.com/embed/z39T05VbD-g
 
 ### Screenshot of asweare.life admin site
 
