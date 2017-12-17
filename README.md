@@ -7,12 +7,12 @@ Video demonstration on youtube, link below:
 
 https://www.youtube.com/embed/V9TC0pJzAVM
 
-###Screenshot of asweare.life admin site
+### Screenshot of asweare.life admin site
 
 
 <img src="https://github.com/Dodotree/ResumableSymfony/blob/master/Capture11.JPG?raw=true">
 
-###Screenshot of Sportsrush site
+### Screenshot of Sportsrush site
 
 
 <img src="https://github.com/Dodotree/ResumableSymfony/blob/master/Capture8.JPG?raw=true">
