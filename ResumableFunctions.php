@@ -24,16 +24,6 @@ class ResumableFunctions
     return $response;
     }
 
-    public function baseURL(){
-        $scheme = $_SERVER['REQUEST_SCHEME'];
-        $host = $_SERVER['HTTP_HOST'];
-        return "$scheme://$host/uploads/images/";
-        #return 'http://nanobillion.com'.'/uploads/images/';
-        #return 'http://www.sportsrush.com'.'/uploads/images/';
-    }
-
-
-
     /**
      * This is the implementation of the server side part of
      * Resumable.js client script, which sends/uploads files
