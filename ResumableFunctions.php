@@ -1,6 +1,6 @@
 <?php
 
-namespace Museum\CollectionBundle\Functions;
+namespace App\YourBundle\Functions;
 
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\JsonResponse;
