@@ -1,6 +1,6 @@
 <?php
 
-namespace Museum\CollectionBundle\Functions;
+namespace App\YourBundle\Functions;
 
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -23,16 +23,6 @@ class ResumableFunctions
         $response->setData($arr);
     return $response;
     }
-
-    public function baseURL(){
-        $scheme = $_SERVER['REQUEST_SCHEME'];
-        $host = $_SERVER['HTTP_HOST'];
-        return "$scheme://$host/uploads/images/";
-        #return 'http://nanobillion.com'.'/uploads/images/';
-        #return 'http://www.sportsrush.com'.'/uploads/images/';
-    }
-
-
 
     /**
      * This is the implementation of the server side part of
