@@ -65,7 +65,8 @@ define([
         },
 
         init: function( config, btn_configs, upload_btn ){ 
-            var resumable = new Resumable({});
+            var resumable_opts = ('undefined' != typeof(config.route) )? {'target':config.route} : {};
+            var resumable = new Resumable(resumable_opts);
 
             if(!resumable.support){
                 return;

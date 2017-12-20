@@ -135,6 +135,7 @@ Resumable.prototype = {
         this.events = [];
 
         // resumable options
+        this.target = ('undefined' != typeof(opts.target))? opts.target: this.target;
         this.maxFiles = ('undefined' != typeof(opts.maxFiles))? opts.maxFiles: this.maxFiles;
         this.simultaneousUploads = ('undefined' != typeof(opts.simultaneousUploads))? opts.simultaneousUploads: this.simultaneousUploads;
 
