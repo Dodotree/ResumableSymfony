@@ -9,13 +9,15 @@ define([
         bind: function(resumable, config, upload_btn, pre_upload_callback){
             upload_btn.off('click').on('click', function(e){
                 e.preventDefault();
-//console.log('Uploading? ', resumable.isUploading());
+              
+                if( resumable.files.length == 0 ){
+                    config.noFilesUpload();
+                }
+
                 if( resumable.isUploading() ){
                     resumable.pause();
                     $.each(resumable.files, function(i, file){ file.holder.addClass('paused'); });
-//console.log('pause');
                 }else if( pre_upload_callback( resumable.files ) ){
-//console.log('upload');
                     FileUploader.startUpload(resumable, config);
                 }
             });
@@ -80,7 +82,7 @@ define([
                 config.panel.holders = [config.panel.obj];
             }
 
-            var callback_names = ["getUploadNode", "onUploadPanelChange", "onUploadStart", 
+            var callback_names = ["noFilesUpload", "getUploadNode", "onUploadPanelChange", "onUploadStart", 
                                   "onUploadNodeProgress", "onUploadPanelProgress",
                                   "toggleUploadPause", "onPanelPause", "postNodeUpload", "postUpload"];
             $.each(callback_names, function(i,n){
