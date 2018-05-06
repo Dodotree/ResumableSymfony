@@ -1,6 +1,6 @@
 define([
   'jquery',
-  'resumable2'
+  'resumable'
 ], function ($, Resumable) {
 
 
