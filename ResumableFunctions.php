@@ -411,20 +411,6 @@ class ResumableFunctions
 
                 $upload->setType($upload_type);
 
-                if(strpos($upload_type, 'sponsor') !== false and isset($optionalParams['sponsor_id'])
-                    and $sponsor = $em->getRepository('MuseumCollectionBundle:Sponsor')->find((int)$optionalParams['sponsor_id'])){
-
-                    if( 'sponsor-logo' == $upload_type ){
-                        $sponsor->setLogo($upload);
-                    }elseif( 'sponsor-splash' == $upload_type ){
-                        $sponsor->setSplash($upload);
-                    }elseif( 'sponsor-banner' == $upload_type ){
-                        $sponsor->setBanner($upload);
-                    }elseif( 'sponsor-footer' == $upload_type ){
-                        $sponsor->setFooter($upload);
-                    }
-                    $em->persist($sponsor);
-                }
             }
             $em->persist($upload);
             $em->flush();
